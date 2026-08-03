@@ -1,0 +1,18 @@
+name: calendario
+
+services:
+  app:
+    build:
+      context: ./app
+    container_name: calendario_app
+    restart: unless-stopped
+    environment:
+      BOOKING_TIMEZONE: Europe/Rome
+      BOOKING_SLOT_MINUTES: "60"
+      BOOKING_MIN_NOTICE_HOURS: "0"
+      BOOKING_MAX_DAYS_AHEAD: "30"
+    env_file:
+      - path: ./app/.env
+        required: false
+    ports:
+      - "127.0.0.1:3017:3000"
