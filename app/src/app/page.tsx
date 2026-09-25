@@ -1,12 +1,19 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Slot = { start: string; end: string; label: string };
 type Day = { iso: string; day: string; weekday: string; month: string; isToday: boolean; isWeekend: boolean };
+type PublicEvent = { date: string; start: string; end: string; timeLabel: string; title: string; kind: "lesson" | "meeting" | "event" | "busy"; allDay: boolean };
 type Errors = Partial<Record<"name" | "email" | "topic" | "slot", string>>;
+type Availability = "checking" | "available" | "full" | "error";
+
+function availabilityFor(slots: Slot[]): Availability {
+  return slots.length > 0 ? "available" : "full";
+}
 
 const topics = ["Sito web", "Ripetizioni", "Supporto tecnico", "Progetto digitale", "Altro"];
+const eventLabels = { lesson: "Lezione", meeting: "Riunione", event: "Impegno", busy: "Occupato" } as const;
 
 function isoInRome(offset = 0) {
   const now = new Date();
@@ -29,37 +36,128 @@ function longDate(iso: string) {
 
 export default function Home() {
   const days = useMemo(() => Array.from({ length: 30 }, (_, index) => dayInfo(index)), []);
-  const firstOpenDay = useMemo(() => days.find((day) => !day.isWeekend)?.iso || days[0].iso, [days]);
-  const [date, setDate] = useState(firstOpenDay);
+  const [date, setDate] = useState("");
   const [slots, setSlots] = useState<Slot[]>([]);
+  const [availabilitySearchComplete, setAvailabilitySearchComplete] = useState(false);
+  const [availabilitySearchError, setAvailabilitySearchError] = useState(false);
+  const [availability, setAvailability] = useState<Record<string, Availability>>(() => Object.fromEntries(days.map((day) => [day.iso, day.isWeekend ? "full" : "checking"])));
+  const availabilityRequests = useRef(new Map<string, Promise<Slot[]>>());
+  const slotLoadId = useRef(0);
+  const userSelectedDate = useRef(false);
+  const [events, setEvents] = useState<PublicEvent[]>([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(false);
+  const [agendaLoading, setAgendaLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [notice, setNotice] = useState("");
+  const [agendaNotice, setAgendaNotice] = useState("");
+  const [mode, setMode] = useState<"stub" | "google">("stub");
   const [confirmation, setConfirmation] = useState<{ date: string; slot: string; name: string; topic: string } | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{ date: string; dateLabel: string; start: string; slot: string; name: string; email: string; topic: string; message: string; reason: string } | null>(null);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
   const [form, setForm] = useState({ name: "", email: "", topic: "", message: "" });
   const selectedSlot = slots.find((slot) => slot.start === selected);
+  const dayEvents = date ? events.filter((event) => event.date === date) : [];
+
+  const loadCalendar = useCallback(async () => {
+    setAgendaLoading(true);
+    setAgendaNotice("");
+    try {
+      const response = await fetch(`/api/calendar?from=${days[0].iso}&to=${days.at(-1)!.iso}`, { cache: "no-store" });
+      const data = await response.json();
+      if (data.mode === "stub" || data.mode === "google") setMode(data.mode);
+      setEvents(response.ok && Array.isArray(data.events) ? data.events : []);
+      if (!response.ok) setAgendaNotice(data.error || "Impossibile caricare l’agenda.");
+    } catch {
+      setEvents([]);
+      setAgendaNotice("Agenda temporaneamente non disponibile.");
+    } finally {
+      setAgendaLoading(false);
+    }
+  }, [days]);
+
+  const getDaySlots = useCallback((value: string) => {
+    const existing = availabilityRequests.current.get(value);
+    if (existing) return existing;
+    setAvailability((current) => ({ ...current, [value]: "checking" }));
+    const request = (async () => {
+      try {
+        const response = await fetch(`/api/availability?date=${encodeURIComponent(value)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (data.mode === "stub" || data.mode === "google") setMode(data.mode);
+        if (!response.ok || !Array.isArray(data.slots)) throw new Error("Disponibilità non disponibile");
+        const result = data.slots as Slot[];
+        setAvailability((current) => ({ ...current, [value]: availabilityFor(result) }));
+        return result;
+      } catch {
+        setAvailability((current) => ({ ...current, [value]: "error" }));
+        availabilityRequests.current.delete(value);
+        return [];
+      }
+    })();
+    availabilityRequests.current.set(value, request);
+    return request;
+  }, []);
 
   async function loadSlots(value: string) {
+    const loadId = ++slotLoadId.current;
     setLoading(true);
     setSelected("");
     setErrors((current) => ({ ...current, slot: undefined }));
     setNotice("");
-    try {
-      const response = await fetch(`/api/availability?date=${encodeURIComponent(value)}`, { cache: "no-store" });
-      const data = await response.json();
-      setSlots(response.ok ? data.slots : []);
-      if (!response.ok) setNotice(data.error || "Impossibile caricare gli orari.");
-    } catch {
-      setSlots([]);
-      setNotice("Errore rete: gli orari demo non sono disponibili in questo momento.");
-    } finally {
-      setLoading(false);
-    }
+    const result = await getDaySlots(value);
+    if (loadId !== slotLoadId.current) return;
+    setSlots(result);
+    if (!availabilityRequests.current.has(value)) setNotice("Errore rete: gli orari non sono disponibili in questo momento.");
+    setLoading(false);
   }
 
-  useEffect(() => { loadSlots(date); }, [date]);
+  useEffect(() => { loadCalendar(); }, [loadCalendar]);
+  useEffect(() => {
+    let active = true;
+    const findFirstAndLoadStatuses = async () => {
+      setLoading(true);
+      const weekdays = days.filter((day) => !day.isWeekend);
+      let firstAvailable: { day: Day; slots: Slot[] } | undefined;
+      let searchFailed = false;
+      for (const day of weekdays) {
+        const result = await getDaySlots(day.iso);
+        if (!availabilityRequests.current.has(day.iso)) {
+          searchFailed = true;
+          break;
+        }
+        if (result.length) {
+          firstAvailable = { day, slots: result };
+          break;
+        }
+      }
+      if (!active) return;
+      if (firstAvailable && !userSelectedDate.current) {
+        setDate(firstAvailable.day.iso);
+        setSlots(firstAvailable.slots);
+      } else if (!firstAvailable && !userSelectedDate.current) {
+        setSlots([]);
+      }
+      if (!userSelectedDate.current) {
+        setAvailabilitySearchError(searchFailed);
+        setAvailabilitySearchComplete(true);
+      }
+      if (!userSelectedDate.current) setLoading(false);
+
+      const remaining = weekdays.filter((day) => !availabilityRequests.current.has(day.iso));
+      let cursor = 0;
+      const workers = Array.from({ length: Math.min(3, remaining.length) }, async () => {
+        while (active && cursor < remaining.length) {
+          const day = remaining[cursor++];
+          await getDaySlots(day.iso);
+        }
+      });
+      await Promise.all(workers);
+    };
+    void findFirstAndLoadStatuses();
+    return () => { active = false; };
+  }, [days, getDaySlots]);
 
   function validate() {
     const next: Errors = {};
@@ -74,49 +172,91 @@ export default function Home() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setConfirmation(null);
-    if (!validate() || !selectedSlot) return;
+    if (!validate() || !selectedSlot || !date) return;
+    const topic = form.topic.trim();
+    const message = form.message.trim();
+    setPendingConfirmation({
+      date,
+      dateLabel: longDate(date),
+      start: selected,
+      slot: selectedSlot.label,
+      name: form.name.trim(),
+      email: form.email.trim(),
+      topic,
+      message,
+      reason: [topic, message].filter(Boolean).join(" — "),
+    });
+    setNotice("");
+    requestAnimationFrame(() => reviewHeading.current?.focus());
+  }
+
+  async function confirmRequest() {
+    if (!pendingConfirmation || sending) return;
+    const request = pendingConfirmation;
     setSending(true);
     setNotice("");
-    const reason = [form.topic.trim(), form.message.trim()].filter(Boolean).join(" — ");
-    const response = await fetch("/api/bookings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, start: selected, name: form.name, email: form.email, reason }),
-    });
-    const data = await response.json();
-    if (response.ok) {
-      setConfirmation({ date: longDate(date), slot: selectedSlot.label, name: form.name.trim(), topic: form.topic.trim() });
-      await loadSlots(date);
-    } else {
-      setNotice(data.error || "Invio non riuscito. Riprova o contattami direttamente.");
+    try {
+      const response = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: request.date, start: request.start, name: request.name, email: request.email, reason: request.reason }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setConfirmation({ date: request.dateLabel, slot: request.slot, name: request.name, topic: request.topic });
+        setPendingConfirmation(null);
+        availabilityRequests.current.delete(request.date);
+        await Promise.all([loadSlots(request.date), loadCalendar()]);
+      } else {
+        setNotice(data.error || "Invio non riuscito. Riprova o contattami direttamente.");
+      }
+    } catch {
+      setNotice("Invio non riuscito. Riprova tra poco.");
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   }
 
   return (
     <main>
-      <header className="site-header">
-        <a href="https://swarz.it">← Torna a swarz.it</a>
+      <div className="ambient ambient-one" aria-hidden="true" />
+      <div className="ambient ambient-two" aria-hidden="true" />
+      <header className="site-header glass-bar">
+        <a href="https://swarz.it">← swarz.it</a>
         <p>Antonio Scharmuller</p>
-        <span>Demo / stub</span>
+        <nav aria-label="Navigazione principale">
+          <a href="#agenda">Agenda</a>
+          <a href="#richiesta">Prenota</a>
+          <a href="/admin">Admin</a>
+        </nav>
       </header>
 
       <section className="hero">
-        <p className="eyebrow">Calendario booking</p>
-        <h1>Calendario demo</h1>
-        <p>Scegli un giorno tra i prossimi 30. Il sistema è in fase di attivazione: la richiesta non è ancora una prenotazione definitiva.</p>
-        <div className="trust-row" aria-label="Stato calendario">
-          <span>Demo / stub</span>
-          <span>Dati non persistenti</span>
-          <span>Conferma manuale</span>
+        <div className="hero-copy">
+          <p className="eyebrow">Attività · Progetti · Disponibilità</p>
+          <h1>La mia agenda pubblica.</h1>
+          <p>Uno spazio dove condivido i miei impegni pubblici, progetti e attività. Puoi consultare la disponibilità e richiedere un incontro.</p>
+          <div className="hero-actions">
+            <a className="primary-action" href="#agenda">Esplora l’agenda</a>
+            <a className="secondary-action" href="#richiesta">Richiedi un incontro</a>
+          </div>
         </div>
+        <aside className="hero-status glass-card" aria-label="Stato del calendario">
+          <span className={`status-dot ${mode}`} />
+          <p className="eyebrow">Agenda live</p>
+          <strong>{mode === "google" ? "Google Calendar collegato" : "Modalità dimostrativa"}</strong>
+          <p>{mode === "google" ? "Disponibilità e impegni sono aggiornati dal calendario dedicato." : "I dati temporanei vengono azzerati al riavvio."}</p>
+          <small>Europe/Rome · prossimi 30 giorni</small>
+        </aside>
       </section>
 
-      <section className="booking-panel" aria-label="Richiesta calendario">
-        <div className="steps" aria-label="Passaggi">
-          <span className="active">1. Giorno</span>
-          <span className={selected ? "active" : ""}>2. Orario</span>
-          <span className={selected ? "active" : ""}>3. Dati</span>
+      <section className="booking-panel glass-panel" id="agenda" aria-label="Agenda e richiesta calendario">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Agenda pubblica</p>
+            <h2>Impegni e disponibilità.</h2>
+          </div>
+          <p>I titoli degli appuntamenti pubblici sono visibili. Richieste e impegni riservati compaiono soltanto come “Occupato”.</p>
         </div>
 
         <div className="booking-grid">
@@ -124,53 +264,83 @@ export default function Home() {
             <div className="section-title">
               <div>
                 <p className="eyebrow">Prossimi 30 giorni</p>
-                <h2 id="day-title">Scegli il giorno</h2>
+                <h3 id="day-title">Scegli il giorno</h3>
               </div>
-              <p>Gli stati sono demo: la disponibilità reale sarà collegata a Google Calendar più avanti.</p>
+              <p>Seleziona una data per vedere agenda e slot prenotabili.</p>
             </div>
             <div className="day-grid" role="list">
-              {days.map((day) => (
-                <button
-                  type="button"
-                  key={day.iso}
-                  className={`${date === day.iso ? "selected" : ""} ${day.isWeekend ? "disabled" : ""}`}
-                  onClick={() => !day.isWeekend && setDate(day.iso)}
-                  disabled={day.isWeekend}
-                  aria-pressed={date === day.iso}
-                  aria-label={`${day.weekday} ${day.day} ${day.month}${day.isToday ? ", oggi" : ""}${day.isWeekend ? ", non disponibile in demo" : ""}`}
-                >
-                  <span>{day.weekday}</span>
-                  <strong>{day.day}</strong>
-                  <small>{day.month}{day.isToday ? " · oggi" : ""}</small>
-                </button>
-              ))}
+              {days.map((day) => {
+                const status = availability[day.iso] || "checking";
+                const statusLabel = status === "available" ? "Disponibile" : status === "full" ? "Completo" : status === "error" ? "Disponibilità da verificare" : "Verifica disponibilità";
+                const statusAriaLabel = status === "available" ? "Giorno disponibile" : status === "full" ? "Giorno completo" : status === "error" ? "Disponibilità non verificata" : "Verifica disponibilità";
+                return (
+                  <button
+                    type="button"
+                    key={day.iso}
+                    className={`${date === day.iso ? "selected" : ""} ${day.isWeekend ? "weekend" : ""}`}
+                    onClick={() => { userSelectedDate.current = true; setPendingConfirmation(null); setDate(day.iso); void loadSlots(day.iso); }}
+                    disabled={sending}
+                    aria-pressed={date === day.iso}
+                    aria-label={`${day.weekday} ${day.day} ${day.month}${day.isToday ? ", oggi" : ""}: ${statusAriaLabel}`}
+                    title={statusLabel}
+                  >
+                    <span>{day.weekday}</span>
+                    <strong>{day.day}</strong>
+                    <small>{day.month}{day.isToday ? " · oggi" : ""}</small>
+                    <i className={`availability-dot ${status}`} aria-hidden="true" />
+                    <small className="availability-label">{statusLabel}</small>
+                  </button>
+                );
+              })}
             </div>
-            <div className="legend" aria-label="Legenda">
-              <span><i /> Selezionato</span>
-              <span><i /> Giorno demo</span>
-              <span><i /> Non disponibile</span>
+
+            <div className="day-agenda" aria-live="polite">
+              <div className="agenda-date">
+                <p className="eyebrow">Giornata selezionata</p>
+                <h3>{date ? longDate(date) : "Nessuna data selezionata"}</h3>
+              </div>
+              {agendaLoading && <p className="inline-state">Aggiornamento agenda…</p>}
+              {!agendaLoading && !date && <p className="inline-state">{availabilitySearchError ? "Non riesco a verificare la disponibilità. Seleziona un giorno per riprovare." : availabilitySearchComplete ? "Nessuna data prenotabile nei prossimi 30 giorni." : "Cerco la prima data con orari prenotabili."}</p>}
+              {!agendaLoading && agendaNotice && <p className="message warn">{agendaNotice}</p>}
+              {!agendaLoading && date && !agendaNotice && dayEvents.length === 0 && (
+                <div className="empty-agenda"><span>○</span><p>Nessun impegno pubblico per questa giornata.</p></div>
+              )}
+              {!agendaLoading && dayEvents.map((event, index) => (
+                <article className={`agenda-event ${event.kind}`} key={`${event.start}-${event.title}-${index}`}>
+                  <div><span>{eventLabels[event.kind]}</span><time>{event.timeLabel}</time></div>
+                  <strong>{event.title}</strong>
+                </article>
+              ))}
             </div>
           </section>
 
-          <section className="form-side" aria-labelledby="slot-title">
-            <form onSubmit={submit} noValidate>
-              <fieldset>
-                <legend id="slot-title">Scegli l’orario</legend>
-                <p className="hint">{longDate(date)} · slot demo da 60 minuti · Europe/Rome</p>
+          <section className="form-side" id="richiesta" aria-labelledby="slot-title">
+            <div className="steps" aria-label="Passaggi richiesta">
+              <span className="active">1. Giorno</span>
+              <span className={selected ? "active" : ""}>2. Orario</span>
+              <span className={selected && slots.length ? "active" : ""}>3. Dati</span>
+              <span className={pendingConfirmation ? "active" : ""}>4. Conferma</span>
+            </div>
+            <h2 id="slot-title">Orari disponibili</h2>
+            {loading && <p className="inline-state" role="status" aria-live="polite">Caricamento orari…</p>}
+            {!loading && !date && <p className="no-slots-state" role="status">{availabilitySearchError ? "Impossibile verificare la disponibilità. Seleziona un giorno per riprovare." : availabilitySearchComplete ? "Nessuna data prenotabile nei prossimi 30 giorni." : "Cerco la prima data con almeno un orario libero."}</p>}
+            {!loading && date && !slots.length && <p className="no-slots-state" role="status">{notice || "Nessun orario disponibile per questa giornata. Seleziona un'altra data."}</p>}
+            {!loading && slots.length > 0 && <form onSubmit={submit} noValidate>
+              <div className="slot-picker" aria-disabled={Boolean(pendingConfirmation)}>
+                <p className="hint">{longDate(date)} · orari Europe/Rome</p>
                 <div className="slots" aria-live="polite">
-                  {loading && <p className="inline-state">Caricamento orari…</p>}
-                  {!loading && slots.map((slot) => (
-                    <button type="button" key={slot.start} className={selected === slot.start ? "selected" : ""} onClick={() => setSelected(slot.start)} aria-pressed={selected === slot.start}>
+                  {slots.map((slot) => (
+                    <button type="button" key={slot.start} className={selected === slot.start ? "selected" : ""} onClick={() => setSelected(slot.start)} aria-pressed={selected === slot.start} disabled={Boolean(pendingConfirmation)}>
                       {slot.label}
                     </button>
                   ))}
-                  {!loading && !slots.length && <p className="inline-state">Nessuno slot demo per questa giornata.</p>}
                 </div>
                 {errors.slot && <p className="field-error">{errors.slot}</p>}
                 {selectedSlot && <p className="summary">Riepilogo: {longDate(date)} · {selectedSlot.label}</p>}
-                <button className="text-button" type="button" onClick={() => setSelected("")} disabled={!selected}>Cambia orario</button>
-              </fieldset>
+                <button className="text-button" type="button" onClick={() => setSelected("")} disabled={!selected || Boolean(pendingConfirmation)}>Cambia orario</button>
+              </div>
 
+              {!pendingConfirmation && <>
               <div className="details">
                 <div className="field">
                   <label htmlFor="name">Nome</label>
@@ -197,14 +367,31 @@ export default function Home() {
               </div>
 
               <div className="submit-row">
-                <p>Modalità demo: nessuna promessa di prenotazione definitiva, nessuna email automatica reale finché OAuth non è collegato.</p>
-                <button className="submit" disabled={sending || loading}>{sending ? "Invio in corso…" : "Invia richiesta"}</button>
+                <p>La richiesta resta in attesa di approvazione. Nulla è confermato automaticamente. <a href="/privacy">Privacy</a></p>
+                <button className="submit" disabled={sending || loading || !selected}>{selected ? "Rivedi richiesta" : "Scegli un orario"}</button>
               </div>
+              </>}
+              {pendingConfirmation && <section className="request-review" aria-labelledby="request-review-title" aria-live="polite">
+                <p className="eyebrow">Controllo finale</p>
+                <h2 id="request-review-title" ref={reviewHeading} tabIndex={-1}>Confermi la richiesta?</h2>
+                <p>Stai richiedendo:</p>
+                <dl>
+                  <div><dt>Motivo</dt><dd>{pendingConfirmation.topic}</dd></div>
+                  <div><dt>Quando</dt><dd>{pendingConfirmation.dateLabel} · {pendingConfirmation.slot}</dd></div>
+                  <div><dt>Nome</dt><dd>{pendingConfirmation.name}</dd></div>
+                  <div><dt>Email</dt><dd>{pendingConfirmation.email}</dd></div>
+                  {pendingConfirmation.message && <div><dt>Messaggio</dt><dd>{pendingConfirmation.message}</dd></div>}
+                </dl>
+                <div className="review-actions">
+                  <button className="submit" type="button" onClick={() => void confirmRequest()} disabled={sending}>{sending ? "Invio in corso…" : "Conferma richiesta"}</button>
+                  <button className="text-button" type="button" onClick={() => { setPendingConfirmation(null); requestAnimationFrame(() => document.getElementById("name")?.focus()); }} disabled={sending}>Modifica</button>
+                </div>
+              </section>}
               {notice && <p className="message warn" role="status" aria-live="polite">{notice}</p>}
               {confirmation && (
                 <div className="confirmation" role="status" aria-live="polite">
-                  <h2>Richiesta inviata.</h2>
-                  <p>Non è ancora una prenotazione confermata.</p>
+                  <h2>Richiesta ricevuta.</h2>
+                  <p>È in attesa di approvazione. Riceverai l’invito solo dopo la conferma.</p>
                   <dl>
                     <div><dt>Nome</dt><dd>{confirmation.name}</dd></div>
                     <div><dt>Quando</dt><dd>{confirmation.date} · {confirmation.slot}</dd></div>
@@ -212,14 +399,14 @@ export default function Home() {
                   </dl>
                 </div>
               )}
-            </form>
+            </form>}
           </section>
         </div>
       </section>
 
-      <footer>
+      <footer className="glass-bar">
         <span>© {new Date().getFullYear()} Antonio Scharmuller</span>
-        <span>Questo calendario fa parte del portfolio tecnico su swarz.it.</span>
+        <span>Agenda personale e richieste di incontro · <a href="/privacy">Privacy</a></span>
       </footer>
     </main>
   );

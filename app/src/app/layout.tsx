@@ -6,8 +6,8 @@ const sans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Calendario demo — Antonio Scharmuller",
-  description: "Interfaccia calendario demo per inviare una richiesta di incontro non definitiva.",
+  title: "Calendario — Antonio Scharmuller",
+  description: "Agenda pubblica e richieste di incontro con Antonio Scharmuller.",
   robots: { index: false, follow: false },
 };
 
