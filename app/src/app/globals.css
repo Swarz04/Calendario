@@ -272,6 +272,7 @@ footer a,
 .request-review { margin-top: 20px; padding: 20px; border: 1px solid rgba(8, 127, 152, 0.25); border-radius: var(--radius-md); background: rgba(157, 226, 235, 0.22); }
 .request-review h2 { margin: 8px 0 12px; font-size: 1.5rem; letter-spacing: -0.035em; }
 .request-review > p:not(.eyebrow) { margin: 0 0 14px; color: var(--muted-strong); }
+.request-review .review-note { margin-top: 14px; border-left: 3px solid var(--accent); padding-left: 11px; font-size: 0.88rem; }
 .request-review dl { display: grid; gap: 9px; margin: 0; }
 .request-review dl > div { display: grid; grid-template-columns: minmax(72px, 0.35fr) minmax(0, 1fr); gap: 12px; }
 .request-review dt { color: var(--muted); font: 800 0.68rem var(--font-mono); text-transform: uppercase; }
@@ -297,7 +298,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; margin-bottom
 .admin-back { min-height: 44px; display: inline-flex; align-items: center; margin-top: 18px; color: var(--accent-deep); font-weight: 800; }
 .admin-header { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-radius: var(--radius-md); padding: 12px 18px; }
 .admin-header strong { display: block; margin-top: 5px; }
-.admin-header > div:last-child { display: flex; align-items: center; gap: 8px; }
+.admin-header > div:last-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-header a,
 .admin-header button { min-height: 44px; display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; background: rgba(255, 255, 255, 0.5); padding: 0 14px; color: var(--muted-strong); font-weight: 800; }
 .admin-hero { display: flex; justify-content: space-between; align-items: end; gap: 30px; padding: 68px 12px 44px; }
@@ -344,6 +345,45 @@ footer { display: flex; justify-content: space-between; gap: 20px; margin-bottom
 .admin-card h3 { margin: 14px 0 6px; font-size: 1.2rem; }
 .admin-card p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 0.84rem; }
 .admin-card .request-reason { margin-top: 12px; border-left: 3px solid var(--border); padding-left: 12px; color: var(--muted-strong); }
+.request-status { display: inline-flex; align-items: center; min-height: 28px; border-radius: 999px; padding: 0 10px; font: 820 0.68rem var(--font-mono); }
+.request-status.pending { background: #fff0d1; color: #704b06; }
+.request-status.accepted { background: rgba(124, 200, 176, 0.3); color: #145c44; }
+.request-status.rejected { background: rgba(139, 150, 147, 0.2); color: #4b5552; }
+.request-meta { display: grid; gap: 5px; margin-top: 10px; color: var(--muted-strong); font-size: 0.85rem; overflow-wrap: anywhere; }
+.request-meta p { margin: 0; }
+.request-accept { margin-top: 8px; border-radius: var(--radius-md); padding: 22px; }
+.request-accept h2 { margin: 8px 0; font-size: 1.6rem; }
+.request-accept > p { color: var(--muted-strong); line-height: 1.55; }
+.request-visibility { display: grid; gap: 10px; margin: 18px 0; }
+.request-visibility label { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.62); padding: 13px; cursor: pointer; }
+.request-visibility input { width: 18px; min-height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+.request-visibility span { display: grid; gap: 4px; }
+.request-visibility small { color: var(--muted); font-weight: 600; line-height: 1.4; }
+.request-migrate { margin-bottom: 16px; border: 1px solid rgba(8, 127, 152, 0.24); border-radius: var(--radius-sm); background: var(--accent-soft); padding: 14px; }
+.request-migrate p { margin: 0 0 10px; color: var(--muted-strong); }
+.request-migrate button { min-height: 42px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255, 255, 255, 0.75); padding: 0 14px; font-weight: 800; }
+.request-history { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+.request-history h3 { margin: 0 0 14px; font-size: 1.15rem; }
+.admin-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(16, 24, 23, 0.52); padding: 20px; }
+.request-accept { width: min(560px, 100%); max-height: min(90vh, 760px); overflow-y: auto; box-shadow: 0 30px 100px rgba(0, 0, 0, 0.28); }
+.request-accept fieldset { min-width: 0; }
+.request-accept legend { margin-bottom: 10px; }
+.request-accept .editor-actions { flex-wrap: wrap; }
+.accept-summary { display: grid; gap: 8px; margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.48); padding: 14px; }
+.accept-summary > div { display: grid; grid-template-columns: minmax(115px, 0.35fr) minmax(0, 1fr); gap: 10px; }
+.accept-summary dt { color: var(--muted); font: 800 0.67rem var(--font-mono); text-transform: uppercase; }
+.accept-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.settings-panel { max-width: 760px; margin: clamp(38px, 8vh, 82px) auto; border-radius: var(--radius-lg); padding: clamp(24px, 5vw, 44px); }
+.settings-panel h1 { margin: 8px 0 26px; font-size: clamp(2.4rem, 6vw, 4.2rem); letter-spacing: -0.055em; }
+.settings-state { display: inline-flex; border-radius: 999px; padding: 9px 14px; font-weight: 850; }
+.settings-state.connected { background: rgba(124, 200, 176, 0.3); color: #145c44; }
+.settings-state.attention { background: #fff0d1; color: #704b06; }
+.settings-checks { display: grid; gap: 10px; margin: 18px 0; padding: 0; list-style: none; }
+.settings-checks li { display: flex; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.5); padding: 14px; }
+.settings-checks li strong { color: var(--accent-deep); }
+.settings-checked { color: var(--muted); font-size: 0.82rem; }
+.settings-note { margin: 22px 0; border-left: 3px solid var(--border); padding: 4px 0 4px 14px; }
+.settings-note p { margin: 6px 0 0; color: var(--muted); line-height: 1.55; }
 .card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .card-actions button { min-height: 42px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255, 255, 255, 0.72); padding: 0 14px; font-weight: 800; }
 .card-actions .accept { border-color: rgba(28, 113, 84, 0.24); background: rgba(124, 200, 176, 0.22); color: #145c44; }

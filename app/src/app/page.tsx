@@ -54,7 +54,7 @@ export default function Home() {
   const [agendaNotice, setAgendaNotice] = useState("");
   const [mode, setMode] = useState<"stub" | "google">("stub");
   const [confirmation, setConfirmation] = useState<{ date: string; slot: string; name: string; topic: string } | null>(null);
-  const [pendingConfirmation, setPendingConfirmation] = useState<{ date: string; dateLabel: string; start: string; slot: string; name: string; email: string; topic: string; message: string; reason: string } | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{ date: string; dateLabel: string; start: string; slot: string; name: string; email: string; topic: string; message: string } | null>(null);
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   const [form, setForm] = useState({ name: "", email: "", topic: "", message: "" });
   const selectedSlot = slots.find((slot) => slot.start === selected);
@@ -184,7 +184,6 @@ export default function Home() {
       email: form.email.trim(),
       topic,
       message,
-      reason: [topic, message].filter(Boolean).join(" — "),
     });
     setNotice("");
     requestAnimationFrame(() => reviewHeading.current?.focus());
@@ -199,7 +198,7 @@ export default function Home() {
       const response = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: request.date, start: request.start, name: request.name, email: request.email, reason: request.reason }),
+        body: JSON.stringify({ date: request.date, start: request.start, name: request.name, email: request.email, topic: request.topic, message: request.message }),
       });
       const data = await response.json();
       if (response.ok) {
@@ -318,7 +317,7 @@ export default function Home() {
             <div className="steps" aria-label="Passaggi richiesta">
               <span className="active">1. Giorno</span>
               <span className={selected ? "active" : ""}>2. Orario</span>
-              <span className={selected && slots.length ? "active" : ""}>3. Dati</span>
+          <span className={selected && slots.length ? "active" : ""}>3. Dati personali</span>
               <span className={pendingConfirmation ? "active" : ""}>4. Conferma</span>
             </div>
             <h2 id="slot-title">Orari disponibili</h2>
@@ -374,7 +373,7 @@ export default function Home() {
               {pendingConfirmation && <section className="request-review" aria-labelledby="request-review-title" aria-live="polite">
                 <p className="eyebrow">Controllo finale</p>
                 <h2 id="request-review-title" ref={reviewHeading} tabIndex={-1}>Confermi la richiesta?</h2>
-                <p>Stai richiedendo:</p>
+                <p>Stai richiedendo un incontro:</p>
                 <dl>
                   <div><dt>Motivo</dt><dd>{pendingConfirmation.topic}</dd></div>
                   <div><dt>Quando</dt><dd>{pendingConfirmation.dateLabel} · {pendingConfirmation.slot}</dd></div>
@@ -382,6 +381,7 @@ export default function Home() {
                   <div><dt>Email</dt><dd>{pendingConfirmation.email}</dd></div>
                   {pendingConfirmation.message && <div><dt>Messaggio</dt><dd>{pendingConfirmation.message}</dd></div>}
                 </dl>
+                <p className="review-note">La richiesta verrà verificata manualmente. L’orario non è confermato finché non ricevi l’approvazione.</p>
                 <div className="review-actions">
                   <button className="submit" type="button" onClick={() => void confirmRequest()} disabled={sending}>{sending ? "Invio in corso…" : "Conferma richiesta"}</button>
                   <button className="text-button" type="button" onClick={() => { setPendingConfirmation(null); requestAnimationFrame(() => document.getElementById("name")?.focus()); }} disabled={sending}>Modifica</button>
@@ -392,7 +392,7 @@ export default function Home() {
             {confirmation && (
               <div className="confirmation" role="status" aria-live="polite">
                 <h2>Richiesta ricevuta.</h2>
-                <p>È in attesa di approvazione. Riceverai l’invito solo dopo la conferma.</p>
+                <p>È in attesa di verifica manuale. Ti invieremo un invito se la richiesta verrà approvata.</p>
                 <dl>
                   <div><dt>Nome</dt><dd>{confirmation.name}</dd></div>
                   <div><dt>Quando</dt><dd>{confirmation.date} · {confirmation.slot}</dd></div>

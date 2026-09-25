@@ -7,6 +7,12 @@ export const eventProperties = Object.freeze({
   requestStatus: "swarzRequestStatus",
   requestName: "swarzRequestName",
   requestEmail: "swarzRequestEmail",
+  requestTopic: "swarzRequestTopic",
+  requestMessage: "swarzRequestMessage",
+  requestResolvedAt: "swarzRequestResolvedAt",
+  requestAppointmentId: "swarzRequestAppointmentId",
+  requestSourceEventId: "swarzRequestSourceEventId",
+  bookingRequestId: "swarzBookingRequestId",
 });
 
 export type EventKind = "lesson" | "meeting" | "event" | "busy";
@@ -17,10 +23,13 @@ export type CalendarEventLike = {
   summary?: string | null;
   description?: string | null;
   visibility?: string | null;
+  transparency?: string | null;
   start?: { date?: string | null; dateTime?: string | null } | null;
   end?: { date?: string | null; dateTime?: string | null } | null;
   recurrence?: string[] | null;
   attendees?: Array<{ email?: string | null; displayName?: string | null }> | null;
+  created?: string | null;
+  updated?: string | null;
   extendedProperties?: { private?: Record<string, string> | null } | null;
 };
 
@@ -118,6 +127,12 @@ export function toAdminEvent(event: CalendarEventLike) {
     requestStatus: properties[eventProperties.requestStatus] || "",
     requestName: properties[eventProperties.requestName] || "",
     requestEmail: properties[eventProperties.requestEmail] || "",
+    requestTopic: properties[eventProperties.requestTopic] || "",
+    requestMessage: properties[eventProperties.requestMessage] || "",
+    requestCreated: event.created || "",
+    requestResolvedAt: properties[eventProperties.requestResolvedAt] || "",
+    requestAppointmentId: properties[eventProperties.requestAppointmentId] || "",
+    requestSourceEventId: properties[eventProperties.requestSourceEventId] || "",
     recurrence: event.recurrence || [],
   };
 }
