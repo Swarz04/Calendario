@@ -40,7 +40,7 @@ export default function Home() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [availabilitySearchComplete, setAvailabilitySearchComplete] = useState(false);
   const [availabilitySearchError, setAvailabilitySearchError] = useState(false);
-  const [availability, setAvailability] = useState<Record<string, Availability>>(() => Object.fromEntries(days.map((day) => [day.iso, day.isWeekend ? "full" : "checking"])));
+  const [availability, setAvailability] = useState<Record<string, Availability>>(() => Object.fromEntries(days.map((day) => [day.iso, "checking"])));
   const availabilityRequests = useRef(new Map<string, Promise<Slot[]>>());
   const slotLoadId = useRef(0);
   const userSelectedDate = useRef(false);
@@ -118,14 +118,14 @@ export default function Home() {
     let active = true;
     const findFirstAndLoadStatuses = async () => {
       setLoading(true);
-      const weekdays = days.filter((day) => !day.isWeekend);
+      const futureDays = days;
       let firstAvailable: { day: Day; slots: Slot[] } | undefined;
       let searchFailed = false;
-      for (const day of weekdays) {
+      for (const day of futureDays) {
         const result = await getDaySlots(day.iso);
         if (!availabilityRequests.current.has(day.iso)) {
           searchFailed = true;
-          break;
+          continue;
         }
         if (result.length) {
           firstAvailable = { day, slots: result };
@@ -145,7 +145,7 @@ export default function Home() {
       }
       if (!userSelectedDate.current) setLoading(false);
 
-      const remaining = weekdays.filter((day) => !availabilityRequests.current.has(day.iso));
+      const remaining = futureDays.filter((day) => !availabilityRequests.current.has(day.iso));
       let cursor = 0;
       const workers = Array.from({ length: Math.min(3, remaining.length) }, async () => {
         while (active && cursor < remaining.length) {
@@ -388,18 +388,18 @@ export default function Home() {
                 </div>
               </section>}
               {notice && <p className="message warn" role="status" aria-live="polite">{notice}</p>}
-              {confirmation && (
-                <div className="confirmation" role="status" aria-live="polite">
-                  <h2>Richiesta ricevuta.</h2>
-                  <p>È in attesa di approvazione. Riceverai l’invito solo dopo la conferma.</p>
-                  <dl>
-                    <div><dt>Nome</dt><dd>{confirmation.name}</dd></div>
-                    <div><dt>Quando</dt><dd>{confirmation.date} · {confirmation.slot}</dd></div>
-                    <div><dt>Motivo</dt><dd>{confirmation.topic}</dd></div>
-                  </dl>
-                </div>
-              )}
             </form>}
+            {confirmation && (
+              <div className="confirmation" role="status" aria-live="polite">
+                <h2>Richiesta ricevuta.</h2>
+                <p>È in attesa di approvazione. Riceverai l’invito solo dopo la conferma.</p>
+                <dl>
+                  <div><dt>Nome</dt><dd>{confirmation.name}</dd></div>
+                  <div><dt>Quando</dt><dd>{confirmation.date} · {confirmation.slot}</dd></div>
+                  <div><dt>Motivo</dt><dd>{confirmation.topic}</dd></div>
+                </dl>
+              </div>
+            )}
           </section>
         </div>
       </section>
